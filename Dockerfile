@@ -1,33 +1,35 @@
-FROM node:18-slim
+# Use the official Node.js 18 Alpine image which has a smaller attack surface
+FROM node:18-alpine
 
-# Create app directory
+# Install required system dependencies
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    cairo-dev \
+    jpeg-dev \
+    pango-dev \
+    giflib-dev
+
+# Create app directory and set as working directory
 WORKDIR /usr/src/app
 
-# Install app dependencies
+# Copy package files
 COPY package*.json ./
 
-# Install dependencies with exact versions
-RUN npm ci --only=production
-
-# Install required system dependencies for canvas
-RUN apt-get update && \
-    apt-get install -y \
-    build-essential \
-    libcairo2-dev \
-    libpango1.0-dev \
-    libjpeg-dev \
-    libgif-dev \
-    librsvg2-dev \
-    python3 \
-    ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
+# Install dependencies with exact versions and production only
+RUN npm ci --only=production \
+    && npm cache clean --force
 
 # Copy app source
 COPY . .
 
-# Use non-root user for security
-RUN chown -R node:node /usr/src/app
-USER node
+# Create a non-root user
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup \
+    && chown -R appuser:appgroup /usr/src/app
+
+# Switch to non-root user
+USER appuser
 
 # Start the application
 CMD [ "npm", "start" ] 
