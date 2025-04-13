@@ -1,6 +1,7 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits, Events, PermissionsBitField } = require('discord.js');
 const { joinVoiceChannel, createAudioPlayer, VoiceConnectionStatus } = require('@discordjs/voice');
+const db = require('./database');
 
 const client = new Client({
     intents: [
@@ -9,12 +10,8 @@ const client = new Client({
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildVoiceStates,
         GatewayIntentBits.GuildMembers,
-        GatewayIntentBits.DirectMessages,
-        GatewayIntentBits.GuildIntegrations,
-        GatewayIntentBits.GuildWebhooks,
-        GatewayIntentBits.GuildModeration,
-        GatewayIntentBits.DirectMessageReactions,
-        GatewayIntentBits.GuildMessageReactions
+        GatewayIntentBits.GuildPresences,
+        GatewayIntentBits.GuildIntegrations
     ]
 });
 
@@ -79,9 +76,18 @@ async function updateGuildSounds(guild) {
     }
 }
 
-client.once(Events.ClientReady, (c) => {
+client.once(Events.ClientReady, async (c) => {
     console.log(`Logged in as ${c.user.tag}`);
     console.log(`Bot is in ${c.guilds.cache.size} servers`);
+    
+    // Initialize database
+    try {
+        await db.initializeDatabase();
+        console.log('Database initialized');
+    } catch (error) {
+        console.error('Failed to initialize database:', error);
+        process.exit(1);
+    }
     
     // Check permissions and fetch sounds for all guilds
     c.guilds.cache.forEach(async guild => {
@@ -136,13 +142,27 @@ client.on('raw', async packet => {
             emoji: emoji?.name
         });
 
-        // Create guild entry if it doesn't exist
+        try {
+            // Update database with sound usage
+            const dbResult = await db.upsertSoundStats(
+                guildId,
+                soundId,
+                soundInfo?.name || `Unknown Sound (${soundId})`,
+                soundInfo?.emoji?.name || emoji?.name || null,
+                soundInfo?.isCustom || false
+            );
+
+            console.log('Updated database:', dbResult);
+        } catch (error) {
+            console.error('Error updating database:', error);
+        }
+
+        // Update in-memory stats as well (for redundancy)
         if (!soundboardStats.has(guildId)) {
             soundboardStats.set(guildId, new Map());
         }
         const guildStats = soundboardStats.get(guildId);
 
-        // Use sound name as the key for tracking
         const soundName = soundInfo?.name || `Unknown Sound (${soundId})`;
         if (!guildStats.has(soundName)) {
             guildStats.set(soundName, {
@@ -155,7 +175,6 @@ client.on('raw', async packet => {
             });
         }
 
-        // Update statistics
         const soundStats = guildStats.get(soundName);
         soundStats.usageCount++;
         soundStats.usageHistory.push({
@@ -163,14 +182,7 @@ client.on('raw', async packet => {
             timestamp
         });
 
-        console.log('Sound information:', {
-            name: soundInfo?.name || 'Unknown',
-            emoji: soundInfo?.emoji?.name || emoji?.name,
-            id: soundId,
-            isCustom: soundInfo?.isCustom ? 'Custom' : 'Default'
-        });
-
-        console.log('Updated soundboard statistics:', {
+        console.log('Updated statistics:', {
             guildId,
             soundName: soundStats.name,
             soundId,
@@ -179,6 +191,96 @@ client.on('raw', async packet => {
             totalUses: soundStats.usageCount,
             lastUsed: timestamp
         });
+    }
+});
+
+// Function to join a voice channel
+async function joinVoiceChannelAndFetch(voiceChannel) {
+    try {
+        console.log(`Attempting to join voice channel: ${voiceChannel.name}`);
+        
+        // Fetch sounds before joining
+        console.log('Fetching sounds before joining...');
+        await updateGuildSounds(voiceChannel.guild);
+        
+        const connection = joinVoiceChannel({
+            channelId: voiceChannel.id,
+            guildId: voiceChannel.guild.id,
+            adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+            selfDeaf: false
+        });
+
+        // Set up connection status handling
+        connection.on(VoiceConnectionStatus.Ready, async () => {
+            console.log('Voice connection is ready!');
+            // Fetch sounds again after connection is ready
+            await updateGuildSounds(voiceChannel.guild);
+        });
+
+        connection.on(VoiceConnectionStatus.Disconnected, () => {
+            console.log('Voice connection disconnected');
+            connection.destroy();
+            voiceConnections.delete(voiceChannel.guild.id);
+        });
+
+        // Create an audio player and subscribe the connection to it
+        const player = createAudioPlayer();
+        connection.subscribe(player);
+
+        // Store the connection
+        voiceConnections.set(voiceChannel.guild.id, connection);
+        console.log(`Successfully joined voice channel: ${voiceChannel.name}`);
+        
+        return connection;
+    } catch (error) {
+        console.error('Error joining voice channel:', error);
+        throw error;
+    }
+}
+
+// Function to check if a channel only has the bot
+function isChannelEmptyExceptBot(channel, botId) {
+    return channel.members.every(member => member.user.bot) || 
+           channel.members.size === 0;
+}
+
+// Add voice state update handler
+client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
+    try {
+        // Ignore bot's own voice state updates
+        if (oldState.member.user.bot || newState.member.user.bot) return;
+
+        const guild = newState.guild;
+        const botId = client.user.id;
+        
+        // User joined a voice channel
+        if (newState.channel && (!oldState.channel || oldState.channel.id !== newState.channel.id)) {
+            console.log(`User ${newState.member.user.tag} joined channel ${newState.channel.name}`);
+            
+            // Check if we're not already in a voice channel in this guild
+            if (!voiceConnections.has(guild.id)) {
+                await joinVoiceChannelAndFetch(newState.channel);
+            }
+        }
+        
+        // User left a voice channel
+        if (oldState.channel) {
+            // Wait a short moment to ensure all voice states are updated
+            setTimeout(async () => {
+                // Check if the old channel is empty except for bots
+                if (isChannelEmptyExceptBot(oldState.channel, botId)) {
+                    console.log(`Channel ${oldState.channel.name} is empty except for bots, leaving...`);
+                    const connection = voiceConnections.get(guild.id);
+                    if (connection) {
+                        connection.destroy();
+                        voiceConnections.delete(guild.id);
+                        console.log(`Left empty voice channel: ${oldState.channel.name}`);
+                    }
+                }
+            }, 1000); // 1 second delay to ensure all voice states are updated
+        }
+    } catch (error) {
+        console.error('Error in voice state update handler:', error);
     }
 });
 
@@ -206,7 +308,6 @@ client.on(Events.MessageCreate, async (message) => {
 
         // Handle !join command
         if (message.content.toLowerCase() === '!join') {
-            // Check if the user is in a voice channel
             const voiceChannel = message.member?.voice.channel;
             if (!voiceChannel) {
                 await message.reply('You need to be in a voice channel first!');
@@ -214,41 +315,8 @@ client.on(Events.MessageCreate, async (message) => {
             }
 
             try {
-                console.log('Attempting to join voice channel:', voiceChannel.name);
-                
-                // Fetch sounds before joining
-                console.log('Fetching sounds before joining...');
-                await updateGuildSounds(voiceChannel.guild);
-                
-                const connection = joinVoiceChannel({
-                    channelId: voiceChannel.id,
-                    guildId: voiceChannel.guild.id,
-                    adapterCreator: voiceChannel.guild.voiceAdapterCreator,
-                    selfDeaf: false
-                });
-
-                // Set up connection status handling
-                connection.on(VoiceConnectionStatus.Ready, async () => {
-                    console.log('Voice connection is ready!');
-                    // Fetch sounds again after connection is ready
-                    await updateGuildSounds(voiceChannel.guild);
-                });
-
-                connection.on(VoiceConnectionStatus.Disconnected, () => {
-                    console.log('Voice connection disconnected');
-                    connection.destroy();
-                    voiceConnections.delete(voiceChannel.guild.id);
-                });
-
-                // Create an audio player and subscribe the connection to it
-                const player = createAudioPlayer();
-                connection.subscribe(player);
-
-                // Store the connection
-                voiceConnections.set(voiceChannel.guild.id, connection);
-
+                await joinVoiceChannelAndFetch(voiceChannel);
                 await message.reply(`Joined ${voiceChannel.name}!`);
-                console.log(`Successfully joined voice channel: ${voiceChannel.name}`);
             } catch (error) {
                 console.error('Error joining voice channel:', error);
                 await message.reply('Failed to join the voice channel.');
@@ -271,32 +339,28 @@ client.on(Events.MessageCreate, async (message) => {
         // Handle !soundstats command
         else if (message.content.toLowerCase() === '!soundstats') {
             console.log('Processing !soundstats command');
-            const guildStats = soundboardStats.get(message.guildId);
             
-            if (!guildStats || guildStats.size === 0) {
-                await message.reply('No soundboard statistics available yet!');
-                return;
+            try {
+                // Get stats from database
+                const stats = await db.getGuildSoundStats(message.guildId);
+                
+                if (!stats || stats.length === 0) {
+                    await message.reply('No soundboard statistics available yet!');
+                    return;
+                }
+
+                // Create a formatted message
+                const statsMessage = ['**Soundboard Usage Statistics:**']
+                    .concat(stats.map((stat, index) => 
+                        `${index + 1}. ${stat.emoji || ''} "${stat.sound_name}" - Used ${stat.usage_count} times ${stat.is_custom ? '(Custom)' : '(Default)'}`
+                    ))
+                    .join('\n');
+
+                await message.reply(statsMessage);
+            } catch (error) {
+                console.error('Error fetching sound stats:', error);
+                await message.reply('Error fetching sound statistics.');
             }
-
-            // Convert stats to array and sort by usage count
-            const statsArray = Array.from(guildStats.entries())
-                .map(([soundId, stats]) => ({
-                    name: stats.name,
-                    emoji: stats.emoji?.name || '',
-                    count: stats.usageCount,
-                    soundId: stats.soundId,
-                    isCustom: stats.isCustom
-                }))
-                .sort((a, b) => b.count - a.count);
-
-            // Create a formatted message
-            const statsMessage = ['**Soundboard Usage Statistics:**']
-                .concat(statsArray.map((stat, index) => 
-                    `${index + 1}. ${stat.emoji} "${stat.name}" - Used ${stat.count} times ${stat.isCustom ? '(Custom)' : '(Default)'}`
-                ))
-                .join('\n');
-
-            await message.reply(statsMessage);
         }
 
         // Handle !refreshsounds command
@@ -399,13 +463,22 @@ client.on(Events.MessageCreate, async (message) => {
     }
 });
 
-// Error handling
-client.on('error', (error) => {
+// Add error event handlers
+client.on('error', error => {
     console.error('Discord client error:', error);
 });
 
 process.on('unhandledRejection', error => {
     console.error('Unhandled promise rejection:', error);
+});
+
+// Debug: Log database connection
+db.pool.on('error', (err) => {
+    console.error('Unexpected database error:', err);
+});
+
+db.pool.on('connect', () => {
+    console.log('Successfully connected to PostgreSQL database');
 });
 
 // Login to Discord with error handling
