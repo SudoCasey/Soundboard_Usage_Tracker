@@ -53,12 +53,19 @@ async function updateGuildSounds(guild) {
             // Create a map of sound_id to sound info
             const soundMap = new Map();
             response.items.forEach(sound => {
+                console.log('Processing sound:', {
+                    name: sound.name,
+                    guild_id: sound.guild_id,
+                    current_guild_id: guild.id,
+                    is_custom: sound.guild_id === guild.id
+                });
+                
                 soundMap.set(sound.sound_id, {
                     name: sound.name,
                     emoji: sound.emoji_name ? { name: sound.emoji_name } : null,
                     emoji_id: sound.emoji_id,
                     volume: sound.volume,
-                    isCustom: !sound.available
+                    isCustom: sound.guild_id === guild.id
                 });
             });
             
@@ -207,7 +214,8 @@ async function joinVoiceChannelAndFetch(voiceChannel) {
             channelId: voiceChannel.id,
             guildId: voiceChannel.guild.id,
             adapterCreator: voiceChannel.guild.voiceAdapterCreator,
-            selfDeaf: false
+            selfDeaf: true,
+            selfMute: true
         });
 
         // Set up connection status handling
@@ -352,7 +360,7 @@ client.on(Events.MessageCreate, async (message) => {
                 // Create a formatted message
                 const statsMessage = ['**Soundboard Usage Statistics:**']
                     .concat(stats.map((stat, index) => 
-                        `${index + 1}. ${stat.emoji || ''} "${stat.sound_name}" - Used ${stat.usage_count} times ${stat.is_custom ? '(Custom)' : '(Default)'}`
+                        `${index + 1}. ${stat.emoji || ''} "${stat.sound_name}" - ${stat.usage_count} Uses`
                     ))
                     .join('\n');
 
@@ -371,7 +379,7 @@ client.on(Events.MessageCreate, async (message) => {
                 const sounds = guildSounds.get(message.guild.id);
                 if (sounds && sounds.size > 0) {
                     const soundList = Array.from(sounds.values())
-                        .map(s => `${s.emoji?.name || ''} ${s.name} ${s.isCustom ? '(Custom)' : '(Default)'}`)
+                        .map(s => `${s.emoji?.name || ''} ${s.name}`)
                         .join('\n');
                     await message.reply(`Found ${sounds.size} sounds:\n${soundList}`);
                 } else {
