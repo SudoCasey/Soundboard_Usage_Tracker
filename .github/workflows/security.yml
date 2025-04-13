@@ -48,4 +48,6 @@ jobs:
       - name: Run Docker Scout
         run: |
           docker scout quickview soundboard-tracker
-          docker scout recommendations soundboard-tracker --only-severity critical,high 
+          docker scout cves soundboard-tracker --format sarif --output scout-results.sarif
+          echo "Checking for Critical and High severity vulnerabilities..."
+          docker scout cves soundboard-tracker | grep -E "CRITICAL|HIGH" || echo "No Critical or High severity vulnerabilities found." 
