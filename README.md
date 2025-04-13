@@ -2,7 +2,34 @@
 
 This Discord bot tracks the usage of soundboard reactions in your server and provides statistics about which sounds are used most frequently. It features automatic voice channel management and persistent storage using PostgreSQL.
 
-## Installation Guide
+## Docker Installation (Recommended)
+
+1. **Prerequisites**
+   - Install [Docker](https://docs.docker.com/get-docker/)
+   - Install [Docker Compose](https://docs.docker.com/compose/install/)
+
+2. **Setup**
+   - Clone this repository
+   - Create a `.env` file in the project root with your Discord bot token:
+     ```
+     DISCORD_TOKEN=your_bot_token_here
+     ```
+
+3. **Run with Docker**
+   ```bash
+   # Build and start the services
+   docker-compose up -d
+
+   # View logs
+   docker-compose logs -f
+
+   # Stop the services
+   docker-compose down
+   ```
+
+   The PostgreSQL database will persist its data in a Docker volume.
+
+## Manual Installation
 
 ### Prerequisites
 1. **Node.js and npm**
