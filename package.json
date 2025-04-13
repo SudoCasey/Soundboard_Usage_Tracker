@@ -4,15 +4,23 @@
   "description": "Discord bot to track soundboard usage statistics",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "security-check": "npm audit",
+    "check-outdated": "npm outdated",
+    "audit-fix": "npm audit fix",
+    "update-deps": "npm update",
+    "dev": "npm run security-check && npm start"
   },
   "dependencies": {
-    "@discordjs/voice": "^0.18.0",
-    "canvas": "^3.1.0",
+    "@discordjs/voice": "^0.16.1",
+    "canvas": "^2.11.2",
     "chart.js": "^4.4.8",
     "chartjs-node-canvas": "^5.0.0",
     "discord.js": "^14.18.0",
     "dotenv": "^16.4.5",
     "pg": "^8.11.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

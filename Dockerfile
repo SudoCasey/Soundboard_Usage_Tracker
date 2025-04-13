@@ -1,4 +1,4 @@
-FROM node:20.11.1
+FROM node:18-slim
 
 # Create app directory
 WORKDIR /usr/src/app
@@ -6,8 +6,8 @@ WORKDIR /usr/src/app
 # Install app dependencies
 COPY package*.json ./
 
-# Install dependencies with legacy peer deps flag to avoid conflicts
-RUN npm install --legacy-peer-deps
+# Install dependencies with exact versions
+RUN npm ci --only=production
 
 # Install required system dependencies for canvas
 RUN apt-get update && \
@@ -22,8 +22,12 @@ RUN apt-get update && \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Bundle app source
+# Copy app source
 COPY . .
 
-# Start with required Node.js flags
-CMD ["node", "--experimental-fetch", "--experimental-global-webcrypto", "index.js"] 
+# Use non-root user for security
+RUN chown -R node:node /usr/src/app
+USER node
+
+# Start the application
+CMD [ "npm", "start" ] 
