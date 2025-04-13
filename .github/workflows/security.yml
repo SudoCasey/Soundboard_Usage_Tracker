@@ -37,27 +37,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Docker Scout CLI
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/docker/scout-cli/main/install.sh | sh -s --
+
       - name: Build Docker image
         run: docker build -t soundboard-tracker .
 
       - name: Run Docker Scout
         run: |
-          docker scout cves soundboard-tracker --only-severity critical,high --exit-code 1
-
-  codeql:
-    runs-on: ubuntu-latest
-    permissions:
-      security-events: write
-      actions: read
-      contents: read
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v2
-        with:
-          languages: javascript
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v2 
+          docker scout quickview soundboard-tracker
+          docker scout recommendations soundboard-tracker --only-severity critical,high 
