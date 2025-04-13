@@ -1,0 +1,14 @@
+{
+  "name": "discord-soundboard-tracker",
+  "version": "1.0.0",
+  "description": "Discord bot to track soundboard usage statistics",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@discordjs/voice": "^0.18.0",
+    "discord.js": "^14.18.0",
+    "dotenv": "^16.4.5"
+  }
+}
