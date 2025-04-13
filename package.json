@@ -15,7 +15,7 @@
     "canvas": "2.11.2",
     "chart.js": "3.9.1",
     "chartjs-node-canvas": "4.1.6",
-    "discord.js": "14.14.1",
+    "discord.js": "14.18.0",
     "dotenv": "16.4.5",
     "pg": "8.11.3"
   },
