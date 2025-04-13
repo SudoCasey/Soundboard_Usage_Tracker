@@ -1,6 +1,7 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, Events, PermissionsBitField } = require('discord.js');
+const { Client, GatewayIntentBits, Events, PermissionsBitField, AttachmentBuilder, REST, Routes, ApplicationCommandType } = require('discord.js');
 const { joinVoiceChannel, createAudioPlayer, VoiceConnectionStatus } = require('@discordjs/voice');
+const { ChartJSNodeCanvas } = require('chartjs-node-canvas');
 const db = require('./database');
 
 const client = new Client({
@@ -12,7 +13,8 @@ const client = new Client({
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildPresences,
         GatewayIntentBits.GuildIntegrations
-    ]
+    ],
+    allowedMentions: { parse: ['users', 'roles'] }
 });
 
 // Debug: Log all raw events
@@ -83,16 +85,75 @@ async function updateGuildSounds(guild) {
     }
 }
 
+// Define slash commands
+const commands = [
+    {
+        name: 'join',
+        description: 'Join your current voice channel',
+        type: ApplicationCommandType.ChatInput
+    },
+    {
+        name: 'leave',
+        description: 'Leave the current voice channel',
+        type: ApplicationCommandType.ChatInput
+    },
+    {
+        name: 'soundstats',
+        description: 'Show soundboard usage statistics',
+        type: ApplicationCommandType.ChatInput
+    },
+    {
+        name: 'refreshsounds',
+        description: 'Refresh the list of available sounds',
+        type: ApplicationCommandType.ChatInput
+    },
+    {
+        name: 'soundgraph',
+        description: 'Show soundboard usage statistics as a graph',
+        type: ApplicationCommandType.ChatInput
+    },
+    {
+        name: 'soundboardinfo',
+        description: 'Show debug information about the soundboard',
+        type: ApplicationCommandType.ChatInput
+    }
+];
+
+// Function to register slash commands
+async function registerCommands(client) {
+    try {
+        console.log('Started refreshing application (/) commands.');
+        
+        // Create REST instance
+        const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+        
+        // Register commands globally
+        const data = await rest.put(
+            Routes.applicationCommands(client.user.id),
+            { body: commands }
+        );
+        
+        console.log(`Successfully reloaded ${data.length} application (/) commands.`);
+    } catch (error) {
+        console.error('Error registering slash commands:', error);
+        throw error;
+    }
+}
+
+// Register slash commands when the bot starts up
 client.once(Events.ClientReady, async (c) => {
     console.log(`Logged in as ${c.user.tag}`);
     console.log(`Bot is in ${c.guilds.cache.size} servers`);
     
-    // Initialize database
     try {
+        // Initialize database
         await db.initializeDatabase();
         console.log('Database initialized');
+
+        // Register slash commands
+        await registerCommands(c);
     } catch (error) {
-        console.error('Failed to initialize database:', error);
+        console.error('Error during initialization:', error);
         process.exit(1);
     }
     
@@ -391,6 +452,100 @@ client.on(Events.MessageCreate, async (message) => {
             }
         }
 
+        // Handle !soundgraph command
+        else if (message.content.toLowerCase() === '!soundgraph') {
+            console.log('Processing !soundgraph command');
+            
+            try {
+                // Get stats from database
+                const stats = await db.getGuildSoundStats(message.guildId);
+                
+                if (!stats || stats.length === 0) {
+                    await message.reply('No soundboard statistics available yet!');
+                    return;
+                }
+
+                // Sort stats by usage count
+                stats.sort((a, b) => b.usage_count - a.usage_count);
+
+                // Take top 15 sounds for better readability
+                const topStats = stats.slice(0, 15);
+
+                // Create the chart
+                const width = 1000;
+                const height = 600;
+                const chartCallback = (ChartJS) => {
+                    ChartJS.defaults.responsive = true;
+                    ChartJS.defaults.maintainAspectRatio = false;
+                };
+                const chartJSNodeCanvas = new ChartJSNodeCanvas({ 
+                    width, 
+                    height, 
+                    chartCallback,
+                    backgroundColour: 'white' // Fixed spelling to British English as required by the library
+                });
+
+                // Prepare the data
+                const chartData = {
+                    labels: topStats.map(stat => `${stat.emoji || ''} ${stat.sound_name}`),
+                    datasets: [{
+                        label: 'Usage Count',
+                        data: topStats.map(stat => stat.usage_count),
+                        backgroundColor: 'rgba(54, 162, 235, 0.8)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1
+                    }]
+                };
+
+                // Configure the chart
+                const configuration = {
+                    type: 'bar',
+                    data: chartData,
+                    options: {
+                        indexAxis: 'y',  // Back to horizontal bars
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'Soundboard Usage Statistics',
+                                font: {
+                                    size: 16
+                                }
+                            },
+                            legend: {
+                                display: false
+                            }
+                        },
+                        scales: {
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: 'Number of Uses'
+                                },
+                                beginAtZero: true
+                            },
+                            y: {
+                                ticks: {
+                                    font: {
+                                        size: 14
+                                    }
+                                }
+                            }
+                        }
+                    }
+                };
+
+                // Generate the chart
+                const buffer = await chartJSNodeCanvas.renderToBuffer(configuration);
+                const attachment = new AttachmentBuilder(buffer, { name: 'soundstats.png' });
+
+                // Send the chart
+                await message.reply({ files: [attachment] });
+            } catch (error) {
+                console.error('Error generating sound stats graph:', error);
+                await message.reply('Error generating sound statistics graph.');
+            }
+        }
+
         // Handle !soundboardinfo command
         else if (message.content.toLowerCase() === '!soundboardinfo') {
             console.log('!soundboardinfo command detected');
@@ -468,6 +623,227 @@ client.on(Events.MessageCreate, async (message) => {
         }
     } catch (error) {
         console.error('Error in message event handler:', error);
+    }
+});
+
+// Add slash command handler
+client.on(Events.InteractionCreate, async interaction => {
+    if (!interaction.isChatInputCommand()) return;
+
+    try {
+        const { commandName } = interaction;
+
+        // Defer reply for all commands to give us time to process
+        await interaction.deferReply();
+
+        switch (commandName) {
+            case 'join':
+                const voiceChannel = interaction.member?.voice.channel;
+                if (!voiceChannel) {
+                    await interaction.editReply('You need to be in a voice channel first!');
+                    return;
+                }
+
+                try {
+                    await joinVoiceChannelAndFetch(voiceChannel);
+                    await interaction.editReply(`Joined ${voiceChannel.name}!`);
+                } catch (error) {
+                    console.error('Error joining voice channel:', error);
+                    await interaction.editReply('Failed to join the voice channel.');
+                }
+                break;
+
+            case 'leave':
+                const connection = voiceConnections.get(interaction.guildId);
+                if (connection) {
+                    connection.destroy();
+                    voiceConnections.delete(interaction.guildId);
+                    await interaction.editReply('Left the voice channel!');
+                    console.log('Left voice channel');
+                } else {
+                    await interaction.editReply('I\'m not in a voice channel!');
+                }
+                break;
+
+            case 'soundstats':
+                try {
+                    const stats = await db.getGuildSoundStats(interaction.guildId);
+                    
+                    if (!stats || stats.length === 0) {
+                        await interaction.editReply('No soundboard statistics available yet!');
+                        return;
+                    }
+
+                    const statsMessage = ['**Soundboard Usage Statistics:**']
+                        .concat(stats.map((stat, index) => 
+                            `${index + 1}. ${stat.emoji || ''} "${stat.sound_name}" - ${stat.usage_count} Uses`
+                        ))
+                        .join('\n');
+
+                    await interaction.editReply(statsMessage);
+                } catch (error) {
+                    console.error('Error fetching sound stats:', error);
+                    await interaction.editReply('Error fetching sound statistics.');
+                }
+                break;
+
+            case 'refreshsounds':
+                try {
+                    await interaction.editReply('Refreshing sound list...');
+                    await updateGuildSounds(interaction.guild);
+                    const sounds = guildSounds.get(interaction.guild.id);
+                    if (sounds && sounds.size > 0) {
+                        const soundList = Array.from(sounds.values())
+                            .map(s => `${s.emoji?.name || ''} ${s.name}`)
+                            .join('\n');
+                        await interaction.editReply(`Found ${sounds.size} sounds:\n${soundList}`);
+                    } else {
+                        await interaction.editReply('No sounds found in this server.');
+                    }
+                } catch (error) {
+                    console.error('Error refreshing sounds:', error);
+                    await interaction.editReply('Failed to refresh sound list.');
+                }
+                break;
+
+            case 'soundgraph':
+                try {
+                    const stats = await db.getGuildSoundStats(interaction.guildId);
+                    
+                    if (!stats || stats.length === 0) {
+                        await interaction.editReply('No soundboard statistics available yet!');
+                        return;
+                    }
+
+                    stats.sort((a, b) => b.usage_count - a.usage_count);
+                    const topStats = stats.slice(0, 15);
+
+                    const width = 1000;
+                    const height = 600;
+                    const chartCallback = (ChartJS) => {
+                        ChartJS.defaults.responsive = true;
+                        ChartJS.defaults.maintainAspectRatio = false;
+                    };
+                    const chartJSNodeCanvas = new ChartJSNodeCanvas({ 
+                        width, 
+                        height, 
+                        chartCallback,
+                        backgroundColour: 'white'
+                    });
+
+                    const chartData = {
+                        labels: topStats.map(stat => `${stat.emoji || ''} ${stat.sound_name}`),
+                        datasets: [{
+                            label: 'Usage Count',
+                            data: topStats.map(stat => stat.usage_count),
+                            backgroundColor: 'rgba(54, 162, 235, 0.8)',
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            borderWidth: 1
+                        }]
+                    };
+
+                    const configuration = {
+                        type: 'bar',
+                        data: chartData,
+                        options: {
+                            indexAxis: 'y',
+                            plugins: {
+                                title: {
+                                    display: true,
+                                    text: 'Soundboard Usage Statistics',
+                                    font: {
+                                        size: 16
+                                    }
+                                },
+                                legend: {
+                                    display: false
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    title: {
+                                        display: true,
+                                        text: 'Number of Uses'
+                                    },
+                                    beginAtZero: true
+                                },
+                                y: {
+                                    ticks: {
+                                        font: {
+                                            size: 14
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    };
+
+                    const buffer = await chartJSNodeCanvas.renderToBuffer(configuration);
+                    const attachment = new AttachmentBuilder(buffer, { name: 'soundstats.png' });
+                    await interaction.editReply({ files: [attachment] });
+                } catch (error) {
+                    console.error('Error generating sound stats graph:', error);
+                    await interaction.editReply('Error generating sound statistics graph.');
+                }
+                break;
+
+            case 'soundboardinfo':
+                try {
+                    const guild = interaction.guild;
+                    if (!guild) {
+                        await interaction.editReply('This command must be used in a server.');
+                        return;
+                    }
+
+                    const freshGuild = await client.guilds.fetch(guild.id);
+                    const debugInfo = {
+                        guildId: freshGuild.id,
+                        guildName: freshGuild.name,
+                        botPermissions: freshGuild.members.me.permissions.toArray(),
+                        hasSoundboard: !!freshGuild.soundboard,
+                        soundboardFeatures: {
+                            hasCache: !!freshGuild.soundboard?.sounds?.cache,
+                            cacheSize: freshGuild.soundboard?.sounds?.cache?.size || 0,
+                            hasFetch: !!freshGuild.soundboard?.sounds?.fetch,
+                            hasCreate: !!freshGuild.soundboard?.sounds?.create
+                        },
+                        storedSounds: guildSounds.get(freshGuild.id)?.size || 0,
+                        trackedStats: soundboardStats.get(freshGuild.id)?.size || 0
+                    };
+                    
+                    const infoMessage = [
+                        '**Soundboard Debug Information:**',
+                        `Guild ID: ${debugInfo.guildId}`,
+                        `Guild Name: ${debugInfo.guildName}`,
+                        `Bot Permissions: ${debugInfo.botPermissions.join(', ')}`,
+                        `Has Soundboard: ${debugInfo.hasSoundboard}`,
+                        `Soundboard Features:`,
+                        `- Has Cache: ${debugInfo.soundboardFeatures.hasCache}`,
+                        `- Cache Size: ${debugInfo.soundboardFeatures.cacheSize}`,
+                        `- Can Fetch: ${debugInfo.soundboardFeatures.hasFetch}`,
+                        `- Can Create: ${debugInfo.soundboardFeatures.hasCreate}`,
+                        `Stored Sounds: ${debugInfo.storedSounds}`,
+                        `Tracked Statistics: ${debugInfo.trackedStats}`
+                    ].join('\n');
+
+                    await interaction.editReply(infoMessage);
+                    await updateGuildSounds(freshGuild);
+                } catch (error) {
+                    console.error('Error in !soundboardinfo command:', error);
+                    await interaction.editReply('Error getting debug information: ' + error.message);
+                }
+                break;
+        }
+    } catch (error) {
+        console.error('Error handling slash command:', error);
+        try {
+            const reply = interaction.deferred 
+                ? interaction.editReply 
+                : interaction.reply;
+            await reply.call(interaction, 'An error occurred while processing the command.');
+        } catch (e) {
+            console.error('Error sending error message:', e);
+        }
     }
 });
 
