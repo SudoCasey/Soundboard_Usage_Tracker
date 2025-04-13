@@ -6,4 +6,9 @@ npm-debug.log
 README.md
 .dockerignore
 Dockerfile
-docker-compose.yml 
+docker-compose.yml
+postgres_data
+*.md
+.DS_Store
+.vscode
+.idea 

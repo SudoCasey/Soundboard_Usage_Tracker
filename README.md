@@ -2,32 +2,72 @@
 
 This Discord bot tracks the usage of soundboard reactions in your server and provides statistics about which sounds are used most frequently. It features automatic voice channel management and persistent storage using PostgreSQL.
 
-## Docker Installation (Recommended)
+## Quick Start with Docker Hub
 
-1. **Prerequisites**
-   - Install [Docker](https://docs.docker.com/get-docker/)
-   - Install [Docker Compose](https://docs.docker.com/compose/install/)
-
-2. **Setup**
-   - Clone this repository
-   - Create a `.env` file in the project root with your Discord bot token:
-     ```
-     DISCORD_TOKEN=your_bot_token_here
-     ```
-
-3. **Run with Docker**
-   ```bash
-   # Build and start the services
-   docker-compose up -d
-
-   # View logs
-   docker-compose logs -f
-
-   # Stop the services
-   docker-compose down
+1. **Create a `.env` file with your Discord bot token:**
+   ```
+   DISCORD_TOKEN=your_bot_token_here
    ```
 
-   The PostgreSQL database will persist its data in a Docker volume.
+2. **Create a `docker-compose.yml` file:**
+   ```yaml
+   version: '3.8'
+   services:
+     bot:
+       image: yourusername/soundboard-tracker:latest
+       depends_on:
+         db:
+           condition: service_healthy
+       environment:
+         - DISCORD_TOKEN=${DISCORD_TOKEN}
+         - DB_USER=postgres
+         - DB_PASSWORD=postgres
+         - DB_HOST=db
+         - DB_PORT=5432
+         - DB_NAME=soundboard_stats
+       restart: unless-stopped
+
+     db:
+       image: postgres:13
+       environment:
+         - POSTGRES_USER=postgres
+         - POSTGRES_PASSWORD=postgres
+         - POSTGRES_DB=soundboard_stats
+       volumes:
+         - postgres_data:/var/lib/postgresql/data
+       healthcheck:
+         test: ["CMD-SHELL", "pg_isready -U postgres"]
+         interval: 5s
+         timeout: 5s
+         retries: 5
+       restart: unless-stopped
+
+   volumes:
+     postgres_data:
+   ```
+
+3. **Run the bot:**
+   ```bash
+   docker-compose up -d
+   ```
+
+## Features
+
+- Tracks soundboard usage across servers
+- Displays human-readable sound names
+- Generates usage statistics and graphs
+- Automatically joins/leaves voice channels
+- Persistent PostgreSQL storage
+- Docker support for easy deployment
+
+## Commands
+
+- `/soundstats` or `!soundstats` - Show usage statistics
+- `/soundgraph` or `!soundgraph` - Display statistics as a graph
+- `/join` or `!join` - Join your voice channel
+- `/leave` or `!leave` - Leave the voice channel
+- `/refreshsounds` or `!refreshsounds` - Refresh available sounds
+- `/soundboardinfo` or `!soundboardinfo` - Show debug information
 
 ## Manual Installation
 
