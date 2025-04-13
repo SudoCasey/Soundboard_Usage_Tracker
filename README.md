@@ -1,20 +1,34 @@
 # Discord Soundboard Usage Tracker
 
-This Discord bot tracks the usage of soundboard reactions in your server and provides statistics about which sounds are used most frequently. It features automatic voice channel management and persistent storage using PostgreSQL.
+A Discord bot that tracks soundboard usage in your server, providing statistics and graphs. Features automatic voice channel management and PostgreSQL storage.
 
-## Quick Start with Docker Hub
+[![Docker Hub](https://img.shields.io/docker/v/snipersrecon/discord_soundboard_usage_tracker?label=Docker%20Hub&sort=semver)](https://hub.docker.com/r/snipersrecon/discord_soundboard_usage_tracker)
 
-1. **Create a `.env` file with your Discord bot token:**
+## 🚀 Quick Start (Using Docker)
+
+1. **Install Docker**
+   - Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+   - Start Docker Desktop
+   - Wait for Docker to finish starting up
+
+2. **Create Project Directory**
+   ```bash
+   mkdir soundboard-bot
+   cd soundboard-bot
    ```
-   DISCORD_TOKEN=your_bot_token_here
+
+3. **Create `.env` File**
+   ```bash
+   # Create a .env file with your Discord bot token
+   echo "DISCORD_TOKEN=your_bot_token_here" > .env
    ```
 
-2. **Create a `docker-compose.yml` file:**
+4. **Create `docker-compose.yml` File**
    ```yaml
    version: '3.8'
    services:
      bot:
-       image: yourusername/soundboard-tracker:latest
+       image: snipersrecon/discord_soundboard_usage_tracker:latest
        depends_on:
          db:
            condition: service_healthy
@@ -46,21 +60,17 @@ This Discord bot tracks the usage of soundboard reactions in your server and pro
      postgres_data:
    ```
 
-3. **Run the bot:**
+5. **Start the Bot**
    ```bash
    docker-compose up -d
    ```
 
-## Features
+6. **View Logs (Optional)**
+   ```bash
+   docker-compose logs -f
+   ```
 
-- Tracks soundboard usage across servers
-- Displays human-readable sound names
-- Generates usage statistics and graphs
-- Automatically joins/leaves voice channels
-- Persistent PostgreSQL storage
-- Docker support for easy deployment
-
-## Commands
+## 🤖 Bot Commands
 
 - `/soundstats` or `!soundstats` - Show usage statistics
 - `/soundgraph` or `!soundgraph` - Display statistics as a graph
@@ -68,6 +78,51 @@ This Discord bot tracks the usage of soundboard reactions in your server and pro
 - `/leave` or `!leave` - Leave the voice channel
 - `/refreshsounds` or `!refreshsounds` - Refresh available sounds
 - `/soundboardinfo` or `!soundboardinfo` - Show debug information
+
+## ✨ Features
+
+- 📊 Tracks soundboard usage with statistics
+- 📈 Generates visual usage graphs
+- 🎵 Shows human-readable sound names
+- 🤖 Auto-joins/leaves voice channels
+- 💾 Persistent PostgreSQL storage
+- 🐳 Easy deployment with Docker
+
+## 🛠️ Troubleshooting
+
+If you encounter issues:
+
+1. Check the logs:
+   ```bash
+   docker-compose logs -f
+   ```
+
+2. Restart the containers:
+   ```bash
+   docker-compose down
+   docker-compose up -d
+   ```
+
+3. Reset everything (will delete stored data):
+   ```bash
+   docker-compose down -v
+   docker-compose up -d
+   ```
+
+## 🔄 Updates
+
+To update to the latest version:
+```bash
+docker-compose down
+docker-compose pull
+docker-compose up -d
+```
+
+## 📝 Note
+
+- Keep your Discord bot token private
+- The PostgreSQL data persists in a Docker volume
+- Both prefix commands (!) and slash commands (/) are supported
 
 ## Manual Installation
 
