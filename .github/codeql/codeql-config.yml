@@ -1,0 +1,13 @@
+name: "Custom CodeQL Config"
+
+disable-default-queries: true
+
+queries:
+  - uses: security-and-quality
+
+paths:
+  - index.js
+  - database.js
+paths-ignore:
+  - node_modules
+  - '**/*.test.js' 
