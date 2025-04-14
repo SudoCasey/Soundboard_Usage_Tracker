@@ -276,7 +276,9 @@ async function joinVoiceChannelAndFetch(voiceChannel) {
             guildId: voiceChannel.guild.id,
             adapterCreator: voiceChannel.guild.voiceAdapterCreator,
             selfDeaf: true,
-            selfMute: true
+            selfMute: true,
+            selfVideo: false,
+            debug: false
         });
 
         // Set up connection status handling
